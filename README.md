@@ -41,3 +41,12 @@ flutter build apk --release       # 手机版: build\app\outputs\flutter-apk\app
 ## 许可
 
 MIT License,详见 [LICENSE](LICENSE)。
+
+## Code signing policy
+
+Free code signing provided by [SignPath.io](https://signpath.io), certificate by [SignPath Foundation](https://signpath.org).
+
+- Committers and reviewers: [PETGreen](https://github.com/PETGreen)
+- Approvers: [PETGreen](https://github.com/PETGreen)
+
+**Privacy policy**: This program will not transfer any information to other networked systems unless specifically requested by the user or the person installing or operating it. 本应用完全离线,不收集、不上传任何用户数据。
