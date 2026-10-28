@@ -457,17 +457,70 @@ class PwmApp extends StatelessWidget {
   const PwmApp({super.key});
 
   ThemeData _theme(Brightness b) {
+    final light = b == Brightness.light;
     final scheme = ColorScheme.fromSeed(
-        seedColor: const Color(0xFF4C6FFF), brightness: b);
+        seedColor: const Color(0xFF5B6CFF), brightness: b);
+    final radius = BorderRadius.circular(14);
     return ThemeData(
       useMaterial3: true,
       colorScheme: scheme,
+      scaffoldBackgroundColor:
+          light ? const Color(0xFFF7F8FC) : const Color(0xFF101218),
+      appBarTheme: AppBarTheme(
+        centerTitle: false,
+        elevation: 0,
+        scrolledUnderElevation: 0,
+        backgroundColor: Colors.transparent,
+        titleTextStyle: TextStyle(
+            color: scheme.onSurface, fontSize: 20, fontWeight: FontWeight.w600),
+      ),
       cardTheme: CardThemeData(
-          elevation: 0,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16))),
+        elevation: 0,
+        color: scheme.surface,
+        shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+            side: BorderSide(color: scheme.outlineVariant.withValues(alpha: 0.5))),
+      ),
+      dialogTheme: DialogThemeData(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        titleTextStyle: TextStyle(
+            color: scheme.onSurface, fontSize: 18, fontWeight: FontWeight.w600),
+      ),
       inputDecorationTheme: InputDecorationTheme(
-          border: OutlineInputBorder(borderRadius: BorderRadius.circular(12))),
-      snackBarTheme: const SnackBarThemeData(behavior: SnackBarBehavior.floating),
+        filled: true,
+        fillColor: scheme.surfaceContainerHighest.withValues(alpha: 0.4),
+        border: OutlineInputBorder(borderRadius: radius, borderSide: BorderSide.none),
+        enabledBorder: OutlineInputBorder(
+            borderRadius: radius,
+            borderSide: BorderSide(color: scheme.outlineVariant.withValues(alpha: 0.6))),
+        focusedBorder: OutlineInputBorder(
+            borderRadius: radius,
+            borderSide: BorderSide(color: scheme.primary, width: 1.5)),
+        contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+      ),
+      filledButtonTheme: FilledButtonThemeData(
+        style: FilledButton.styleFrom(
+          shape: RoundedRectangleBorder(borderRadius: radius),
+          padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 18),
+          textStyle: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600)),
+      ),
+      outlinedButtonTheme: OutlinedButtonThemeData(
+        style: OutlinedButton.styleFrom(
+          shape: RoundedRectangleBorder(borderRadius: radius),
+          padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 18)),
+      ),
+      navigationBarTheme: NavigationBarThemeData(
+        elevation: 0,
+        backgroundColor: light ? Colors.white : const Color(0xFF171923),
+        indicatorColor: scheme.primaryContainer,
+        labelTextStyle: WidgetStateProperty.all(
+            const TextStyle(fontSize: 12, fontWeight: FontWeight.w500)),
+      ),
+      snackBarTheme: SnackBarThemeData(
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10))),
+      dividerTheme: DividerThemeData(
+          color: scheme.outlineVariant.withValues(alpha: 0.5), thickness: 1),
     );
   }
 
@@ -547,13 +600,18 @@ class _LockScreenState extends State<LockScreen> {
   /// 解锁成功后:可开启生物识别,然后进入主界面
   Future<void> _afterUnlock({bool alreadyBio = false}) async {
     if (!mounted) return;
-    if (!alreadyBio &&
+    final sp = await SharedPreferences.getInstance();
+    final asked = sp.getBool('bioAsked') ?? false; // 只问一次,拒绝后不再打扰
+    if (!alreadyBio && !asked &&
         await BioService.instance.supported() &&
         !await BioService.instance.enabled) {
+      await sp.setBool('bioAsked', true);
+      if (!mounted) return;
       final enable = await showDialog<bool>(context: context, builder: (ctx) => AlertDialog(
         title: const Text('启用指纹 / 人脸解锁?'),
         content: const Text('下次打开时验证指纹或人脸即可解锁,无需再输主密码。\n'
-            '主密码由系统安全区(KeyStore / Windows Hello)加密保管,本应用不另行保存。'),
+            '主密码由系统安全区(KeyStore / Windows Hello)加密保管,本应用不另行保存。\n'
+            '以后想开启可在 设置 → 指纹 / 人脸解锁 中操作。'),
         actions: [
           TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('暂不')),
           FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('启用')),
@@ -648,7 +706,17 @@ class _LockScreenState extends State<LockScreen> {
                 child: Padding(
                   padding: const EdgeInsets.all(28),
                   child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-                    Icon(Icons.lock_outline, size: 44, color: scheme.primary),
+                    Center(child: Container(
+                      width: 72, height: 72,
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                            begin: Alignment.topLeft, end: Alignment.bottomRight,
+                            colors: [scheme.primary, scheme.tertiary]),
+                        borderRadius: BorderRadius.circular(20),
+                        boxShadow: [BoxShadow(
+                            color: scheme.primary.withValues(alpha: 0.3),
+                            blurRadius: 16, offset: const Offset(0, 6))]),
+                      child: const Icon(Icons.lock_rounded, size: 36, color: Colors.white))),
                     const SizedBox(height: 10),
                     Text('就不告诉你', textAlign: TextAlign.center,
                         style: Theme.of(context).textTheme.headlineSmall),
@@ -765,6 +833,46 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
+  Future<void> _showDataInfo() async {
+    final f = await VaultStore.instance.defaultFile();
+    final exists = await f.exists();
+    final stat = exists ? await f.stat() : null;
+    if (!mounted) return;
+    showDialog(context: context, builder: (ctx) => AlertDialog(
+      title: const Text('数据存储'),
+      content: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+        const Text('所有密码加密保存在这一个文件里:'),
+        const SizedBox(height: 8),
+        SelectableText(f.path, style: const TextStyle(fontFamily: 'monospace', fontSize: 13)),
+        if (stat != null) ...[
+          const SizedBox(height: 8),
+          Text('大小 ${(stat.size / 1024).toStringAsFixed(1)} KB · 更新于 ${stat.modified.toLocal().toString().substring(0, 19)}',
+              style: Theme.of(ctx).textTheme.bodySmall),
+        ] else
+          const Padding(padding: EdgeInsets.only(top: 8), child: Text('数据文件尚未创建')),
+        const SizedBox(height: 10),
+        Text('文件为 AES-256 密文,没有主密码任何人无法打开。备份/换机复制此文件即可;删除后数据不可恢复,请谨慎操作。',
+            style: Theme.of(ctx).textTheme.bodySmall),
+      ]),
+      actions: [
+        TextButton(onPressed: () {
+          Clipboard.setData(ClipboardData(text: f.path));
+          toast(ctx, '路径已复制');
+        }, child: const Text('复制路径')),
+        if (Platform.isWindows || Platform.isLinux || Platform.isMacOS)
+          FilledButton(onPressed: () {
+            if (Platform.isWindows) {
+              Process.run('explorer.exe', ['/select,${f.path}']);
+            } else if (Platform.isMacOS) {
+              Process.run('open', ['-R', f.path]);
+            } else {
+              Process.run('xdg-open', [f.parent.path]);
+            }
+          }, child: const Text('打开所在目录')),
+        TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('关闭')),
+      ]));
+  }
+
   Future<void> _openSettings() async {
     final bioOn = await BioService.instance.enabled;
     if (!mounted) return;
@@ -774,6 +882,9 @@ class _HomeScreenState extends State<HomeScreen> {
         ListTile(leading: const Icon(Icons.palette_outlined), title: const Text('外观'),
             subtitle: Text(ThemeController.instance.labelOf(ThemeController.instance.mode)),
             onTap: () { Navigator.pop(ctx); _showThemeDialog(); }),
+        ListTile(leading: const Icon(Icons.folder_outlined), title: const Text('数据存储'),
+            subtitle: const Text('查看 vault.pwm 位置,备份/打开目录'),
+            onTap: () { Navigator.pop(ctx); _showDataInfo(); }),
         ListTile(leading: const Icon(Icons.fingerprint), title: const Text('指纹 / 人脸解锁'),
             subtitle: Text(bioOn ? '已启用,点按关闭' : '未启用,点按开启'),
             onTap: () { Navigator.pop(ctx); _toggleBio(); }),
@@ -809,7 +920,7 @@ class _HomeScreenState extends State<HomeScreen> {
         onDestinationSelected: (i) => setState(() => _tab = i),
         destinations: const [
           NavigationDestination(icon: Icon(Icons.list_alt), label: '密码库'),
-          NavigationDestination(icon: Icon(Icons.autorenew), label: '生成器'),
+          NavigationDestination(icon: Icon(Icons.key_outlined), selectedIcon: Icon(Icons.key), label: '生成器'),
           NavigationDestination(icon: Icon(Icons.shield_outlined), label: '安全检查'),
         ]),
       floatingActionButton: _tab == 0
@@ -1222,7 +1333,9 @@ class _EntryEditorDialogState extends State<EntryEditorDialog> {
       id: widget.entry?.id ?? _newId(),
       site: _site.text.trim(), username: _user.text.trim(),
       password: _pw.text, notes: _notes.text.trim(),
-      createdAt: widget.entry?.createdAt ?? now, updatedAt: now));
+      createdAt: widget.entry?.createdAt ?? now, updatedAt: now,
+      group: widget.entry?.group ?? '', pinned: widget.entry?.pinned ?? false,
+      lastUsedAt: widget.entry?.lastUsedAt ?? ''));
   }
 
   String _newId() {
@@ -1256,36 +1369,48 @@ class _GeneratorTabState extends State<GeneratorTab> {
   @override
   Widget build(BuildContext context) {
     final o = widget.options;
+    final scheme = Theme.of(context).colorScheme;
     return SingleChildScrollView(
       padding: const EdgeInsets.all(16),
       child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-        Row(children: [
-          Expanded(child: TextField(
-            controller: TextEditingController(text: _output),
-            readOnly: true,
-            style: const TextStyle(fontFamily: 'monospace', fontSize: 16),
-            decoration: const InputDecoration(hintText: '点击下方按钮生成', border: OutlineInputBorder()))),
-          const SizedBox(width: 8),
-          IconButton(icon: const Icon(Icons.copy), tooltip: '复制', onPressed: _output.isEmpty ? null : () {
-            copyText(context, '密码', _output);
-          }),
-        ]),
+        // 结果展示卡
+        Container(
+          padding: const EdgeInsets.fromLTRB(18, 22, 8, 22),
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+                begin: Alignment.topLeft, end: Alignment.bottomRight,
+                colors: [scheme.primaryContainer.withValues(alpha: 0.6),
+                         scheme.tertiaryContainer.withValues(alpha: 0.4)]),
+            borderRadius: BorderRadius.circular(18)),
+          child: Row(children: [
+            Expanded(child: Text(
+              _output.isEmpty ? '点击下方按钮生成' : _output,
+              style: TextStyle(
+                  fontFamily: 'monospace', fontSize: 20, letterSpacing: 1,
+                  color: _output.isEmpty ? scheme.outline : scheme.onSurface,
+                  fontWeight: FontWeight.w600))),
+            IconButton(icon: const Icon(Icons.copy), tooltip: '复制',
+                onPressed: _output.isEmpty ? null : () => copyText(context, '密码', _output)),
+          ])),
         if (_strength != null) ...[
-          const SizedBox(height: 10),
-          LinearProgressIndicator(
-            value: max(0.08, _strength!.score * 0.25),
-            color: _strength!.color, minHeight: 8, borderRadius: BorderRadius.circular(4)),
-          const SizedBox(height: 4),
+          const SizedBox(height: 12),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(6),
+            child: LinearProgressIndicator(
+              value: max(0.08, _strength!.score * 0.25),
+              color: _strength!.color, minHeight: 8,
+              backgroundColor: scheme.surfaceContainerHighest)),
+          const SizedBox(height: 6),
           Text('强度:${_strength!.label}(约 ${_strength!.entropy} 位熵)',
               style: TextStyle(color: _strength!.color, fontSize: 13)),
         ],
         const SizedBox(height: 16),
-        Card(child: Padding(padding: const EdgeInsets.all(12), child: Column(children: [
+        Card(child: Padding(padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10), child: Column(children: [
           Row(children: [
             const Text('长度'), Expanded(child: Slider(
               value: o.length.toDouble(), min: 4, max: 64, divisions: 60,
               label: '${o.length}', onChanged: (v) => setState(() => o.length = v.round()))),
-            Text('${o.length}'),
+            Text('${o.length}', style: const TextStyle(fontWeight: FontWeight.w600)),
           ]),
           _check('大写字母 A-Z', o.upper, (v) => o.upper = v),
           _check('小写字母 a-z', o.lower, (v) => o.lower = v),
@@ -1293,7 +1418,7 @@ class _GeneratorTabState extends State<GeneratorTab> {
           _check('符号 !@#\$…', o.symbols, (v) => o.symbols = v),
           _check('排除易混淆字符 (l 1 I O 0)', o.noAmbiguous, (v) => o.noAmbiguous = v),
         ]))),
-        const SizedBox(height: 12),
+        const SizedBox(height: 14),
         FilledButton.icon(onPressed: _generate, icon: const Icon(Icons.autorenew), label: const Text('生成密码')),
         const SizedBox(height: 8),
         OutlinedButton.icon(
