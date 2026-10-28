@@ -1,0 +1,26 @@
+name: pwm
+description: 密匣 - 极简加密密码管理器
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.9.0
+
+dependencies:
+  flutter:
+    sdk: flutter
+  cryptography: ^2.7.0
+  qr_flutter: ^4.1.0
+  mobile_scanner: ^7.1.2
+  file_picker: ^13.3.0
+  share_plus: ^13.3.1
+  path_provider: ^2.1.5
+  path: ^1.9.1
+  zxing2: ^0.2.4
+  image: ^4.5.4
+  shared_preferences: ^2.5.3
+  local_auth: ^2.3.0
+  flutter_secure_storage: ^11.2.0
+
+flutter:
+  uses-material-design: true
