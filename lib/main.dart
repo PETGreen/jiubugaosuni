@@ -739,8 +739,9 @@ class _HomeScreenState extends State<HomeScreen> {
   Future<void> _openSettings() async {
     final bioOn = await BioService.instance.enabled;
     if (!mounted) return;
-    showModalBottomSheet(context: context, showDragHandle: true, builder: (ctx) => SafeArea(
-      child: Column(mainAxisSize: MainAxisSize.min, children: [
+    showDialog(context: context, builder: (ctx) => SimpleDialog(
+      title: const Text('设置'),
+      children: [
         ListTile(leading: const Icon(Icons.palette_outlined), title: const Text('外观'),
             subtitle: Text(ThemeController.instance.labelOf(ThemeController.instance.mode)),
             onTap: () { Navigator.pop(ctx); _showThemeDialog(); }),
@@ -751,7 +752,7 @@ class _HomeScreenState extends State<HomeScreen> {
             onTap: () { Navigator.pop(ctx); _changePassword(); }),
         ListTile(leading: const Icon(Icons.lock_outline), title: const Text('立即锁定'),
             onTap: () { Navigator.pop(ctx); _lock(); }),
-      ])));
+      ]));
   }
 
   @override
@@ -1308,29 +1309,29 @@ class _SyncDialogState extends State<SyncDialog> {
         if (mobile) ...[
           // 手机端:默认扫码导入电脑二维码;默认微信/分享发送文件到电脑
           FilledButton.icon(onPressed: _busy ? null : _scanQr,
-              icon: const Icon(Icons.qr_code_scanner), label: const Text('扫电脑二维码导入')),
+              icon: const Icon(Icons.qr_code_scanner), label: const Text('扫二维码导入')),
           const SizedBox(height: 8),
-          FilledButton.tonalIcon(onPressed: _busy ? null : _export,
-              icon: const Icon(Icons.send), label: const Text('发送数据到电脑(微信等)')),
+          FilledButton.tonalIcon(onPressed: _busy ? null : _importFile,
+              icon: const Icon(Icons.file_open), label: const Text('从文件导入')),
           const SizedBox(height: 8),
           OutlinedButton.icon(onPressed: _busy ? null : _showQr,
-              icon: const Icon(Icons.qr_code), label: const Text('生成二维码(让电脑扫)')),
+              icon: const Icon(Icons.qr_code), label: const Text('生成二维码(让对方扫)')),
           const SizedBox(height: 8),
-          OutlinedButton.icon(onPressed: _busy ? null : _importFile,
-              icon: const Icon(Icons.file_open), label: const Text('从文件导入')),
+          OutlinedButton.icon(onPressed: _busy ? null : _export,
+              icon: const Icon(Icons.send), label: const Text('发送数据文件(微信等)')),
         ] else ...[
-          // 电脑端:默认生成二维码给手机扫;导入收到的数据文件
-          FilledButton.icon(onPressed: _busy ? null : _showQr,
-              icon: const Icon(Icons.qr_code), label: const Text('生成二维码(手机扫码导入)')),
+          // 电脑端:顺序同手机端——二维码导入,文件导入,二维码导出,文件导出
+          FilledButton.icon(onPressed: _busy ? null : _scanQr,
+              icon: const Icon(Icons.image_search), label: const Text('上传二维码图片导入')),
           const SizedBox(height: 8),
           FilledButton.tonalIcon(onPressed: _busy ? null : _importFile,
               icon: const Icon(Icons.file_open), label: const Text('导入数据文件(手机发来的)')),
           const SizedBox(height: 8),
+          OutlinedButton.icon(onPressed: _busy ? null : _showQr,
+              icon: const Icon(Icons.qr_code), label: const Text('生成二维码(让对方扫)')),
+          const SizedBox(height: 8),
           OutlinedButton.icon(onPressed: _busy ? null : _export,
               icon: const Icon(Icons.upload_file), label: const Text('导出数据文件')),
-          const SizedBox(height: 8),
-          OutlinedButton.icon(onPressed: _busy ? null : _scanQr,
-              icon: const Icon(Icons.image_search), label: const Text('上传二维码图片导入')),
         ],
         if (_error.isNotEmpty)
           Padding(padding: const EdgeInsets.only(top: 8),
