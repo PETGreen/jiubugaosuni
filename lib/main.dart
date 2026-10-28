@@ -10,12 +10,14 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:local_auth/local_auth.dart';
+import 'package:lpinyin/lpinyin.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
+import 'package:scrollable_positioned_list/scrollable_positioned_list.dart';
 import 'package:zxing2/qrcode.dart' as zq;
 import 'package:image/image.dart' as img;
 import 'dart:ui' as ui;
@@ -24,15 +26,21 @@ import 'dart:ui' as ui;
 
 class Entry {
   String id, site, username, password, notes, createdAt, updatedAt;
+  String group;
+  bool pinned;
+  String lastUsedAt;
   Entry({required this.id, required this.site, required this.username,
-      required this.password, this.notes = '', required this.createdAt, required this.updatedAt});
+      required this.password, this.notes = '', required this.createdAt, required this.updatedAt,
+      this.group = '', this.pinned = false, this.lastUsedAt = ''});
   factory Entry.fromJson(Map<String, dynamic> j) => Entry(
         id: j['id'] ?? '', site: j['site'] ?? '', username: j['username'] ?? '',
         password: j['password'] ?? '', notes: j['notes'] ?? '',
-        createdAt: j['createdAt'] ?? '', updatedAt: j['updatedAt'] ?? '');
+        createdAt: j['createdAt'] ?? '', updatedAt: j['updatedAt'] ?? '',
+        group: j['group'] ?? '', pinned: j['pinned'] ?? false, lastUsedAt: j['lastUsedAt'] ?? '');
   Map<String, dynamic> toJson() => {
         'id': id, 'site': site, 'username': username, 'password': password,
-        'notes': notes, 'createdAt': createdAt, 'updatedAt': updatedAt};
+        'notes': notes, 'createdAt': createdAt, 'updatedAt': updatedAt,
+        'group': group, 'pinned': pinned, 'lastUsedAt': lastUsedAt};
 }
 
 class Tombstone {
@@ -372,6 +380,26 @@ class ThemeController extends ChangeNotifier {
   String labelOf(AppThemeMode m) => const ['跟随系统', '浅色', '深色', '自动昼夜(7:00-19:00 浅色)'][m.index];
 }
 
+/* ==================== 设置项(持久化) ==================== */
+
+class SettingsStore {
+  static final SettingsStore instance = SettingsStore();
+
+  /// 是否显示「最近使用」区(可选配置)
+  final showRecent = ValueNotifier<bool>(true);
+
+  Future<void> load() async {
+    final sp = await SharedPreferences.getInstance();
+    showRecent.value = sp.getBool('showRecent') ?? true;
+  }
+
+  Future<void> setShowRecent(bool v) async {
+    showRecent.value = v;
+    final sp = await SharedPreferences.getInstance();
+    await sp.setBool('showRecent', v);
+  }
+}
+
 /* ==================== 生物识别(指纹/人脸/Windows Hello) ==================== */
 
 class BioService {
@@ -421,6 +449,7 @@ void copyText(BuildContext context, String label, String text) {
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
   ThemeController.instance.load();
+  SettingsStore.instance.load();
   runApp(const PwmApp());
 }
 
@@ -750,6 +779,13 @@ class _HomeScreenState extends State<HomeScreen> {
             onTap: () { Navigator.pop(ctx); _toggleBio(); }),
         ListTile(leading: const Icon(Icons.password), title: const Text('修改主密码'),
             onTap: () { Navigator.pop(ctx); _changePassword(); }),
+        ListTile(leading: const Icon(Icons.history), title: const Text('最近使用区'),
+            subtitle: const Text('用过的条目显示在列表顶部'),
+            onTap: () => SettingsStore.instance.setShowRecent(!SettingsStore.instance.showRecent.value),
+            trailing: ValueListenableBuilder<bool>(
+                valueListenable: SettingsStore.instance.showRecent,
+                builder: (_, v, __) => Switch(value: v,
+                    onChanged: (nv) => SettingsStore.instance.setShowRecent(nv)))),
         ListTile(leading: const Icon(Icons.lock_outline), title: const Text('立即锁定'),
             onTap: () { Navigator.pop(ctx); _lock(); }),
       ]));
@@ -834,29 +870,169 @@ class VaultTab extends StatefulWidget {
 class VaultTabState extends State<VaultTab> {
   String _query = '';
   final _revealed = <String>{};
+  final _scrollCtrl = ItemScrollController();
+
+  static const _avatarColors = [
+    Colors.blue, Colors.teal, Colors.deepOrange, Colors.purple,
+    Colors.indigo, Colors.green, Colors.pink, Colors.cyan];
+
+  bool _match(Entry e, String q) {
+    if (e.site.toLowerCase().contains(q) ||
+        e.username.toLowerCase().contains(q)) return true;
+    // 拼音首字母匹配:"wx" 命中 "微信"
+    try {
+      if (PinyinHelper.getShortPinyin(e.site).toLowerCase().contains(q)) return true;
+    } catch (_) {}
+    return false;
+  }
+
+  /// 条目的首字母分区:A-Z 或 #
+  String _letterOf(String site) {
+    if (site.isEmpty) return '#';
+    final c = site.characters.first.toUpperCase();
+    if (RegExp(r'^[A-Z]$').hasMatch(c)) return c;
+    try {
+      final p = PinyinHelper.getShortPinyin(site);
+      if (p.isNotEmpty) {
+        final pc = p.characters.first.toUpperCase();
+        if (RegExp(r'^[A-Z]$').hasMatch(pc)) return pc;
+      }
+    } catch (_) {}
+    return '#';
+  }
+
+  String _sortKey(Entry e) {
+    try {
+      return '${PinyinHelper.getShortPinyin(e.site).toLowerCase()}|${e.site.toLowerCase()}';
+    } catch (_) {
+      return e.site.toLowerCase();
+    }
+  }
+
+  void _copy(Entry e, String label, String text) {
+    copyText(context, label, text);
+    e.lastUsedAt = DateTime.now().toUtc().toIso8601String();
+    VaultStore.instance.save(); // 静默记录使用,供最近使用区
+  }
+
+  Future<void> _togglePin(Entry e) async {
+    e.pinned = !e.pinned;
+    e.updatedAt = DateTime.now().toUtc().toIso8601String();
+    await VaultStore.instance.save();
+  }
+
+  /// 构建分区列表:返回 (扁平化条目[头为String], 字母→条目下标)
+  (List<Object>, Map<String, int>) _buildSections(List<Entry> all, bool showRecent) {
+    final items = <Object>[];
+    final letterIndex = <String, int>{};
+    final pinned = all.where((e) => e.pinned).toList()
+      ..sort((a, b) => _sortKey(a).compareTo(_sortKey(b)));
+    if (pinned.isNotEmpty) {
+      items.add('📌 置顶');
+      items.addAll(pinned);
+    }
+    if (showRecent) {
+      final recent = all.where((e) => !e.pinned && e.lastUsedAt.isNotEmpty).toList()
+        ..sort((a, b) => b.lastUsedAt.compareTo(a.lastUsedAt));
+      if (recent.isNotEmpty) {
+        items.add('🕐 最近使用');
+        items.addAll(recent.take(5));
+      }
+    }
+    final rest = all.where((e) => !e.pinned).toList()
+      ..sort((a, b) {
+        final c = _letterOf(a.site).compareTo(_letterOf(b.site));
+        return c != 0 ? c : _sortKey(a).compareTo(_sortKey(b));
+      });
+    String? cur;
+    for (final e in rest) {
+      final l = _letterOf(e.site);
+      if (l != cur) {
+        cur = l;
+        letterIndex[l] = items.length;
+        items.add(l);
+      }
+      items.add(e);
+    }
+    return (items, letterIndex);
+  }
 
   @override
   Widget build(BuildContext context) {
-    return ValueListenableBuilder<int>(
-      valueListenable: VaultStore.instance.revision,
-      builder: (context, _, __) {
-        final entries = VaultStore.instance.vault.entries.where((e) =>
-            _query.isEmpty || e.site.toLowerCase().contains(_query) || e.username.toLowerCase().contains(_query)).toList();
+    return AnimatedBuilder(
+      animation: Listenable.merge(
+          [VaultStore.instance.revision, SettingsStore.instance.showRecent]),
+      builder: (context, _) {
+        final all = VaultStore.instance.vault.entries;
+        final searching = _query.isNotEmpty;
+        final scheme = Theme.of(context).colorScheme;
+
+        Widget listView;
+        if (all.isEmpty) {
+          listView = Center(child: Text('还没有保存任何密码,点右下角 + 添加',
+              style: Theme.of(context).textTheme.bodySmall));
+        } else if (searching) {
+          final found = all.where((e) => _match(e, _query)).toList()
+            ..sort((a, b) {
+              if (a.pinned != b.pinned) return a.pinned ? -1 : 1;
+              return _sortKey(a).compareTo(_sortKey(b));
+            });
+          listView = found.isEmpty
+              ? Center(child: Text('没有匹配的条目', style: Theme.of(context).textTheme.bodySmall))
+              : ListView.builder(
+                  itemCount: found.length,
+                  itemBuilder: (ctx, i) => _entryCard(found[i]));
+        } else {
+          final (items, letterIndex) =
+              _buildSections(all, SettingsStore.instance.showRecent.value);
+          final letters = letterIndex.keys.toList();
+          listView = Stack(children: [
+            ScrollablePositionedList.builder(
+              itemScrollController: _scrollCtrl,
+              itemCount: items.length,
+              itemBuilder: (ctx, i) {
+                final it = items[i];
+                if (it is String) {
+                  return Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 10, 16, 2),
+                    child: Text(it, style: TextStyle(
+                        fontSize: 13, fontWeight: FontWeight.bold,
+                        color: scheme.primary)));
+                }
+                return _entryCard(it as Entry);
+              }),
+            if (letters.isNotEmpty)
+              Positioned(
+                right: 0, top: 0, bottom: 0,
+                child: Center(
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 6),
+                    decoration: BoxDecoration(
+                      color: scheme.surface.withValues(alpha: 0.7),
+                      borderRadius: BorderRadius.circular(10)),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: letters.map((l) => InkWell(
+                        onTap: () => _scrollCtrl.jumpTo(index: letterIndex[l]!),
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+                          child: Text(l, style: TextStyle(
+                              fontSize: 12, fontWeight: FontWeight.bold,
+                              color: scheme.primary))),
+                      )).toList())))),
+          ]);
+        }
         return Column(children: [
-      Padding(
-        padding: const EdgeInsets.all(12),
-        child: TextField(
-          decoration: const InputDecoration(
-            hintText: '搜索站点或用户名…', prefixIcon: Icon(Icons.search), border: OutlineInputBorder()),
-          onChanged: (v) => setState(() => _query = v.trim().toLowerCase())),
-      ),
-      Expanded(
-        child: entries.isEmpty
-            ? Center(child: Text(_query.isEmpty ? '还没有保存任何密码,点右下角 + 添加' : '没有匹配的条目',
-                style: Theme.of(context).textTheme.bodySmall))
-            : ListView.builder(
-                itemCount: entries.length,
-                itemBuilder: (ctx, i) => _entryCard(entries[i]))),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(12, 12, 12, 4),
+            child: TextField(
+              decoration: InputDecoration(
+                hintText: '搜索站点、用户名或拼音首字母(wx→微信)…',
+                prefixIcon: const Icon(Icons.search),
+                suffixText: '${all.length} 条',
+                border: const OutlineInputBorder()),
+              onChanged: (v) => setState(() => _query = v.trim().toLowerCase()))),
+          Expanded(child: listView),
         ]);
       },
     );
@@ -864,47 +1040,78 @@ class VaultTabState extends State<VaultTab> {
 
   Widget _entryCard(Entry e) {
     final shown = _revealed.contains(e.id);
+    final scheme = Theme.of(context).colorScheme;
+    final color = _avatarColors[e.site.hashCode.abs() % _avatarColors.length];
     return Card(
       margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
       child: Padding(
         padding: const EdgeInsets.all(12),
-        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Text(e.site, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-          if (e.username.isNotEmpty)
+        child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          CircleAvatar(
+            backgroundColor: color.withValues(alpha: 0.15),
+            child: Text(e.site.isEmpty ? '?' : e.site.characters.first.toUpperCase(),
+                style: TextStyle(color: color, fontWeight: FontWeight.bold))),
+          const SizedBox(width: 12),
+          Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
             Row(children: [
-              Expanded(child: Text(e.username, style: Theme.of(context).textTheme.bodySmall)),
-              InkWell(
-                onTap: () => copyText(context, '账户名', e.username),
-                borderRadius: BorderRadius.circular(6),
-                child: Padding(padding: const EdgeInsets.all(2),
-                    child: Icon(Icons.copy, size: 14,
-                        color: Theme.of(context).colorScheme.outline)),
-              ),
+              Flexible(child: Text(e.site, overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16))),
+              if (e.pinned)
+                Padding(padding: const EdgeInsets.only(left: 4),
+                    child: Icon(Icons.push_pin, size: 14, color: scheme.primary)),
+              if (e.group.isNotEmpty)
+                Padding(padding: const EdgeInsets.only(left: 6),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+                      decoration: BoxDecoration(
+                        color: scheme.secondaryContainer,
+                        borderRadius: BorderRadius.circular(6)),
+                      child: Text(e.group, style: TextStyle(
+                          fontSize: 11, color: scheme.onSecondaryContainer)))),
             ]),
-          const SizedBox(height: 8),
-          Row(children: [
-            Expanded(child: Text(shown ? e.password : '••••••••',
-                style: const TextStyle(fontFamily: 'monospace'), overflow: TextOverflow.ellipsis)),
-            IconButton(icon: Icon(shown ? Icons.visibility_off : Icons.visibility, size: 20),
-                tooltip: shown ? '隐藏' : '显示',
-                onPressed: () => setState(() => shown ? _revealed.remove(e.id) : _revealed.add(e.id))),
-            IconButton(icon: const Icon(Icons.copy, size: 20), tooltip: '复制密码',
-                onPressed: () => copyText(context, '密码', e.password)),
-            IconButton(icon: const Icon(Icons.edit, size: 20), tooltip: '编辑', onPressed: () async {
-              final result = await showDialog<Entry>(context: context,
-                  builder: (_) => EntryEditorDialog(entry: e, genOptions: widget.genOptions));
-              if (result != null) {
-                final v = VaultStore.instance.vault;
-                v.entries[v.entries.indexWhere((x) => x.id == e.id)] = result;
-                await widget.onChanged();
-                setState(() {});
-              }
-            }),
-            IconButton(icon: const Icon(Icons.delete_outline, size: 20, color: Colors.redAccent),
-                tooltip: '删除', onPressed: () => _delete(e)),
-          ]),
-          if (e.notes.isNotEmpty)
-            Text(e.notes, style: Theme.of(context).textTheme.bodySmall),
+            if (e.username.isNotEmpty)
+              Row(children: [
+                Flexible(child: Text(e.username, overflow: TextOverflow.ellipsis,
+                    style: Theme.of(context).textTheme.bodySmall)),
+                InkWell(
+                  onTap: () => _copy(e, '账户名', e.username),
+                  borderRadius: BorderRadius.circular(6),
+                  child: Padding(padding: const EdgeInsets.all(2),
+                      child: Icon(Icons.copy, size: 14, color: scheme.outline)),
+                ),
+              ]),
+            const SizedBox(height: 6),
+            Row(children: [
+              Expanded(child: Text(shown ? e.password : '••••••••',
+                  style: const TextStyle(fontFamily: 'monospace'), overflow: TextOverflow.ellipsis)),
+              IconButton(icon: Icon(shown ? Icons.visibility_off : Icons.visibility, size: 20),
+                  tooltip: shown ? '隐藏' : '显示', visualDensity: VisualDensity.compact,
+                  onPressed: () => setState(() => shown ? _revealed.remove(e.id) : _revealed.add(e.id))),
+              IconButton(icon: const Icon(Icons.copy, size: 20), tooltip: '复制密码',
+                  visualDensity: VisualDensity.compact,
+                  onPressed: () => _copy(e, '密码', e.password)),
+              IconButton(icon: Icon(e.pinned ? Icons.push_pin : Icons.push_pin_outlined,
+                      size: 20, color: e.pinned ? scheme.primary : null),
+                  tooltip: e.pinned ? '取消置顶' : '置顶', visualDensity: VisualDensity.compact,
+                  onPressed: () => _togglePin(e)),
+              IconButton(icon: const Icon(Icons.edit, size: 20), tooltip: '编辑',
+                  visualDensity: VisualDensity.compact, onPressed: () async {
+                final result = await showDialog<Entry>(context: context,
+                    builder: (_) => EntryEditorDialog(entry: e, genOptions: widget.genOptions));
+                if (result != null) {
+                  final v = VaultStore.instance.vault;
+                  v.entries[v.entries.indexWhere((x) => x.id == e.id)] = result;
+                  await widget.onChanged();
+                  setState(() {});
+                }
+              }),
+              IconButton(icon: const Icon(Icons.delete_outline, size: 20, color: Colors.redAccent),
+                  tooltip: '删除', visualDensity: VisualDensity.compact,
+                  onPressed: () => _delete(e)),
+            ]),
+            if (e.notes.isNotEmpty)
+              Text(e.notes, style: Theme.of(context).textTheme.bodySmall),
+          ])),
         ]),
       ),
     );
