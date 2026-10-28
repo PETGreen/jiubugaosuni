@@ -2,7 +2,7 @@
     <uses-permission android:name="android.permission.CAMERA"/>
     <uses-permission android:name="android.permission.USE_BIOMETRIC"/>
     <application
-        android:label="密匣"
+        android:label="就不告诉你"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
         <activity

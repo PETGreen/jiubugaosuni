@@ -1,4 +1,4 @@
-# 密匣 (MiXia)
+# 就不告诉你 (Jiubugaosuni)
 
 极简、离线、开源的密码生成与管理器。一套 Flutter 代码同时编译 **Windows EXE** 和 **Android APK**(兼容鸿蒙 4.x 及以下)。
 

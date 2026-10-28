@@ -446,7 +446,7 @@ class PwmApp extends StatelessWidget {
   Widget build(BuildContext context) => AnimatedBuilder(
         animation: ThemeController.instance,
         builder: (_, __) => MaterialApp(
-          title: '密匣',
+          title: '就不告诉你',
           debugShowCheckedModeBanner: false,
           theme: _theme(Brightness.light),
           darkTheme: _theme(Brightness.dark),
@@ -621,7 +621,7 @@ class _LockScreenState extends State<LockScreen> {
                   child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
                     Icon(Icons.lock_outline, size: 44, color: scheme.primary),
                     const SizedBox(height: 10),
-                    Text('密匣', textAlign: TextAlign.center,
+                    Text('就不告诉你', textAlign: TextAlign.center,
                         style: Theme.of(context).textTheme.headlineSmall),
                     const SizedBox(height: 4),
                     Text(_setup ? '首次使用,请设置主密码' : '输入主密码解锁',
@@ -762,7 +762,7 @@ class _HomeScreenState extends State<HomeScreen> {
       const AuditTab(),
     ];
     return Scaffold(
-      appBar: AppBar(title: const Text('密匣'), actions: [
+      appBar: AppBar(title: const Text('就不告诉你'), actions: [
         IconButton(icon: const Icon(Icons.sync), tooltip: '同步', onPressed: () => showDialog(context: context, builder: (_) => const SyncDialog())),
         IconButton(icon: const Icon(Icons.settings_outlined), tooltip: '设置', onPressed: _openSettings),
       ]),
