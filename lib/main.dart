@@ -1153,6 +1153,7 @@ class VaultTabState extends State<VaultTab> {
     final shown = _revealed.contains(e.id);
     final scheme = Theme.of(context).colorScheme;
     final color = _avatarColors[e.site.hashCode.abs() % _avatarColors.length];
+    final isMobile = MediaQuery.of(context).size.width < 400;
     return Card(
       margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
       child: Padding(
@@ -1164,69 +1165,108 @@ class VaultTabState extends State<VaultTab> {
                 style: TextStyle(color: color, fontWeight: FontWeight.bold))),
           const SizedBox(width: 12),
           Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Row(children: [
-              Flexible(child: Text(e.site, overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16))),
-              if (e.pinned)
-                Padding(padding: const EdgeInsets.only(left: 4),
-                    child: Icon(Icons.push_pin, size: 14, color: scheme.primary)),
-              if (e.group.isNotEmpty)
-                Padding(padding: const EdgeInsets.only(left: 6),
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
-                      decoration: BoxDecoration(
-                        color: scheme.secondaryContainer,
-                        borderRadius: BorderRadius.circular(6)),
-                      child: Text(e.group, style: TextStyle(
-                          fontSize: 11, color: scheme.onSecondaryContainer)))),
-            ]),
-            if (e.username.isNotEmpty)
-              Row(children: [
-                Flexible(child: Text(e.username, overflow: TextOverflow.ellipsis,
-                    style: Theme.of(context).textTheme.bodySmall)),
-                InkWell(
-                  onTap: () => _copy(e, '账户名', e.username),
-                  borderRadius: BorderRadius.circular(6),
-                  child: Padding(padding: const EdgeInsets.all(2),
-                      child: Icon(Icons.copy, size: 14, color: scheme.outline)),
-                ),
+            // 站点名 + 状态标签
+            Wrap(crossAxisAlignment: WrapCrossAlignment.center, spacing: 6,
+              children: [
+                Text(e.site, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                if (e.pinned)
+                  Icon(Icons.push_pin, size: 14, color: scheme.primary),
+                if (e.group.isNotEmpty)
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+                    decoration: BoxDecoration(
+                      color: scheme.secondaryContainer,
+                      borderRadius: BorderRadius.circular(6)),
+                    child: Text(e.group, style: TextStyle(
+                        fontSize: 11, color: scheme.onSecondaryContainer))),
               ]),
-            const SizedBox(height: 6),
-            Row(children: [
-              Expanded(child: Text(shown ? e.password : '••••••••',
-                  style: const TextStyle(fontFamily: 'monospace'), overflow: TextOverflow.ellipsis)),
-              IconButton(icon: Icon(shown ? Icons.visibility_off : Icons.visibility, size: 20),
-                  tooltip: shown ? '隐藏' : '显示', visualDensity: VisualDensity.compact,
-                  onPressed: () => setState(() => shown ? _revealed.remove(e.id) : _revealed.add(e.id))),
-              IconButton(icon: const Icon(Icons.copy, size: 20), tooltip: '复制密码',
-                  visualDensity: VisualDensity.compact,
-                  onPressed: () => _copy(e, '密码', e.password)),
-              IconButton(icon: Icon(e.pinned ? Icons.push_pin : Icons.push_pin_outlined,
-                      size: 20, color: e.pinned ? scheme.primary : null),
-                  tooltip: e.pinned ? '取消置顶' : '置顶', visualDensity: VisualDensity.compact,
-                  onPressed: () => _togglePin(e)),
-              IconButton(icon: const Icon(Icons.edit, size: 20), tooltip: '编辑',
-                  visualDensity: VisualDensity.compact, onPressed: () async {
-                final result = await showDialog<Entry>(context: context,
-                    builder: (_) => EntryEditorDialog(entry: e, genOptions: widget.genOptions));
-                if (result != null) {
-                  final v = VaultStore.instance.vault;
-                  v.entries[v.entries.indexWhere((x) => x.id == e.id)] = result;
-                  await widget.onChanged();
-                  setState(() {});
-                }
-              }),
-              IconButton(icon: const Icon(Icons.delete_outline, size: 20, color: Colors.redAccent),
-                  tooltip: '删除', visualDensity: VisualDensity.compact,
-                  onPressed: () => _delete(e)),
+            if (e.username.isNotEmpty)
+              Wrap(crossAxisAlignment: WrapCrossAlignment.center, spacing: 4,
+                children: [
+                  Text(e.username, style: Theme.of(context).textTheme.bodySmall),
+                  InkWell(
+                    onTap: () => _copy(e, '账户名', e.username),
+                    borderRadius: BorderRadius.circular(6),
+                    child: Padding(padding: const EdgeInsets.all(2),
+                        child: Icon(Icons.copy, size: 14, color: scheme.outline)),
+                  ),
+                ]),
+            const SizedBox(height: 10),
+            // 密码独占一行,不再和按钮挤在同一行
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              decoration: BoxDecoration(
+                color: scheme.surfaceContainerHighest.withValues(alpha: 0.5),
+                borderRadius: BorderRadius.circular(10)),
+              child: SelectableText(
+                shown ? e.password : '••••••••',
+                style: TextStyle(
+                    fontFamily: 'monospace',
+                    fontSize: isMobile ? 15 : 16,
+                    color: shown ? scheme.onSurface : scheme.outline),
+                maxLines: shown ? 4 : 1,
+                minLines: 1)),
+            const SizedBox(height: 8),
+            // 操作按钮用 Wrap 自动换行,避免小屏溢出
+            Wrap(spacing: 6, runSpacing: 0, children: [
+              _actionChip(
+                icon: Icon(shown ? Icons.visibility_off : Icons.visibility, size: 18),
+                label: shown ? '隐藏' : '显示',
+                onTap: () => setState(() => shown ? _revealed.remove(e.id) : _revealed.add(e.id))),
+              _actionChip(
+                icon: const Icon(Icons.copy, size: 18),
+                label: '复制密码',
+                onTap: () => _copy(e, '密码', e.password)),
+              _actionChip(
+                icon: const Icon(Icons.copy, size: 18),
+                label: '复制账户',
+                onTap: () => _copy(e, '账户名', e.username)),
+              _actionChip(
+                icon: Icon(e.pinned ? Icons.push_pin : Icons.push_pin_outlined, size: 18,
+                    color: e.pinned ? scheme.primary : null),
+                label: e.pinned ? '取消置顶' : '置顶',
+                onTap: () => _togglePin(e)),
+              _actionChip(
+                icon: const Icon(Icons.edit, size: 18),
+                label: '编辑',
+                onTap: () async {
+                  final result = await showDialog<Entry>(context: context,
+                      builder: (_) => EntryEditorDialog(entry: e, genOptions: widget.genOptions));
+                  if (result != null) {
+                    final v = VaultStore.instance.vault;
+                    v.entries[v.entries.indexWhere((x) => x.id == e.id)] = result;
+                    await widget.onChanged();
+                    setState(() {});
+                  }
+                }),
+              _actionChip(
+                icon: const Icon(Icons.delete_outline, size: 18, color: Colors.redAccent),
+                label: '删除', labelColor: Colors.redAccent,
+                onTap: () => _delete(e)),
             ]),
-            if (e.notes.isNotEmpty)
+            if (e.notes.isNotEmpty) ...[
+              const SizedBox(height: 8),
               Text(e.notes, style: Theme.of(context).textTheme.bodySmall),
+            ],
           ])),
         ]),
       ),
     );
   }
+
+  Widget _actionChip({required Widget icon, required String label,
+      required VoidCallback onTap, Color? labelColor}) => InkWell(
+    onTap: onTap,
+    borderRadius: BorderRadius.circular(8),
+    child: Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+      child: Row(mainAxisSize: MainAxisSize.min, children: [
+        icon,
+        const SizedBox(width: 4),
+        Text(label, style: TextStyle(fontSize: 12, color: labelColor)),
+      ])),
+  );
 
   Future<void> _delete(Entry e) async {
     final ok = await showDialog<bool>(context: context, builder: (ctx) => AlertDialog(
